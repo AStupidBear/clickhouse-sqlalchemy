@@ -207,6 +207,12 @@ class ClickHouseDialect(default.DefaultDialect):
             length = int(spec[12:-1])
             return self.ischema_names['FixedString'](length)
 
+        elif spec.startswith('DateTime64'):
+            return self.ischema_names['DateTime64']()
+
+        elif spec.startswith('DateTime'):
+            return self.ischema_names['DateTime']()
+
         elif spec.startswith('Nullable'):
             inner = spec[9:-1]
             coltype = self.ischema_names['_nullable']
