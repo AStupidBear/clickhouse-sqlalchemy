@@ -20,7 +20,7 @@ class SelectTestCase(BaseTestCase):
             *columns
         )
 
-    def test_group_by_with_totals(self):
+    def test_group_by_with_modifiers(self):
         table = self._make_table()
 
         query = select([table.c.x]).group_by(table.c.x)
@@ -29,10 +29,36 @@ class SelectTestCase(BaseTestCase):
             'SELECT t1.x FROM t1 GROUP BY t1.x'
         )
 
+        query = select([table.c.x]).group_by(table.c.x).with_cube()
+        self.assertEqual(
+            self.compile(query),
+            'SELECT t1.x FROM t1 GROUP BY t1.x WITH CUBE'
+        )
+
+        query = select([table.c.x]).group_by(table.c.x).with_rollup()
+        self.assertEqual(
+            self.compile(query),
+            'SELECT t1.x FROM t1 GROUP BY t1.x WITH ROLLUP'
+        )
+
         query = select([table.c.x]).group_by(table.c.x).with_totals()
         self.assertEqual(
             self.compile(query),
             'SELECT t1.x FROM t1 GROUP BY t1.x WITH TOTALS'
+        )
+
+        query = select([table.c.x]).group_by(table.c.x).with_cube()\
+            .with_totals()
+        self.assertEqual(
+            self.compile(query),
+            'SELECT t1.x FROM t1 GROUP BY t1.x WITH CUBE WITH TOTALS'
+        )
+
+        query = select([table.c.x]).group_by(table.c.x).with_rollup()\
+            .with_totals()
+        self.assertEqual(
+            self.compile(query),
+            'SELECT t1.x FROM t1 GROUP BY t1.x WITH ROLLUP WITH TOTALS'
         )
 
     def test_sample(self):
@@ -442,14 +468,14 @@ class SelectTestCase(BaseTestCase):
             self.compile(make_statement(isouter=True,
                                         full=True)),
             'SELECT table_1.x FROM table_1 '
-            'FULL LEFT OUTER JOIN table_2 ON table_2.y = table_1.x'
+            'FULL OUTER JOIN table_2 ON table_2.y = table_1.x'
         )
 
         self.assertEqual(
             self.compile(make_statement(isouter=False,
                                         full=True)),
             'SELECT table_1.x FROM table_1 '
-            'FULL INNER JOIN table_2 ON table_2.y = table_1.x'
+            'FULL OUTER JOIN table_2 ON table_2.y = table_1.x'
         )
 
         self.assertEqual(
@@ -507,11 +533,10 @@ class SelectTestCase(BaseTestCase):
 
         self.assertEqual(
             self.compile(make_statement(
-                isouter=True, full=True,
-                type='LEFT OUTER', strictness='ANY', distribution='GLOBAL'
+                type='FULL OUTER', strictness='ANY', distribution='GLOBAL'
             )),
             'SELECT table_1.x FROM table_1 GLOBAL '
-            'ANY FULL LEFT OUTER JOIN table_2 ON table_2.y = table_1.x'
+            'ANY FULL OUTER JOIN table_2 ON table_2.y = table_1.x'
         )
 
         self.assertEqual(

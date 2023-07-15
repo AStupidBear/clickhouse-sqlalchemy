@@ -23,13 +23,23 @@ class Float(types.Float, ClickHouseTypeEngine):
     pass
 
 
+class Boolean(types.Boolean, ClickHouseTypeEngine):
+    pass
+
+
 class Array(ClickHouseTypeEngine):
     __visit_name__ = 'array'
+
+    hashable = False
 
     def __init__(self, item_type):
         self.item_type = item_type
         self.item_type_impl = to_instance(item_type)
         super(Array, self).__init__()
+
+    @property
+    def python_type(self):
+        return list
 
     def literal_processor(self, dialect):
         item_processor = self.item_type_impl.literal_processor(dialect)
@@ -48,7 +58,7 @@ class Nullable(ClickHouseTypeEngine):
     __visit_name__ = 'nullable'
 
     def __init__(self, nested_type):
-        self.nested_type = nested_type
+        self.nested_type = to_instance(nested_type)
         super(Nullable, self).__init__()
 
 
@@ -60,7 +70,7 @@ class LowCardinality(ClickHouseTypeEngine):
     __visit_name__ = 'lowcardinality'
 
     def __init__(self, nested_type):
-        self.nested_type = nested_type
+        self.nested_type = to_instance(nested_type)
         super(LowCardinality, self).__init__()
 
 
@@ -96,6 +106,22 @@ class UInt64(Int):
     __visit_name__ = 'uint64'
 
 
+class Int128(Int):
+    __visit_name__ = 'int128'
+
+
+class UInt128(Int):
+    __visit_name__ = 'uint128'
+
+
+class Int256(Int):
+    __visit_name__ = 'int256'
+
+
+class UInt256(Int):
+    __visit_name__ = 'uint256'
+
+
 class Float32(Float):
     __visit_name__ = 'float32'
 
@@ -108,8 +134,12 @@ class Date(types.Date, ClickHouseTypeEngine):
     __visit_name__ = 'date'
 
 
-class DateTime(types.Date, ClickHouseTypeEngine):
+class DateTime(types.DateTime, ClickHouseTypeEngine):
     __visit_name__ = 'datetime'
+
+    def __init__(self, timezone=None):
+        super(DateTime, self).__init__()
+        self.timezone = timezone
 
 
 class DateTime64(DateTime, ClickHouseTypeEngine):
@@ -117,8 +147,7 @@ class DateTime64(DateTime, ClickHouseTypeEngine):
 
     def __init__(self, precision=3, timezone=None):
         self.precision = precision
-        self.timezone = timezone
-        super(DateTime64, self).__init__()
+        super(DateTime64, self).__init__(timezone=timezone)
 
 
 class Enum(types.Enum, ClickHouseTypeEngine):

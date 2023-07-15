@@ -1,6 +1,7 @@
 from sqlalchemy import exc, literal_column
 from sqlalchemy.sql import compiler, elements, COLLECT_CARTESIAN_PRODUCTS, \
     WARN_LINTING, crud
+from sqlalchemy.sql import type_api
 from sqlalchemy.util import inspect_getfullargspec
 
 from ... import types
@@ -57,12 +58,13 @@ class ClickHouseSQLCompiler(compiler.SQLCompiler):
                 self, **kwargs
             ) + ' THEN ' + result._compiler_dispatch(
                 self, **kwargs) + " "
-        if clause.else_ is None:
-            raise exc.CompileError('ELSE clause is required in CASE')
 
-        text += 'ELSE ' + clause.else_._compiler_dispatch(
-            self, **kwargs
-        ) + ' END'
+        if clause.else_ is not None:
+            text += 'ELSE ' + clause.else_._compiler_dispatch(
+                self, **kwargs
+            ) + ' '
+
+        text += 'END'
         return text
 
     def visit_if__func(self, func, **kw):
@@ -148,11 +150,13 @@ class ClickHouseSQLCompiler(compiler.SQLCompiler):
         # need to make a variable to prevent leaks in some debuggers
         join_type = flags.get('type')
         if join_type is None:
-            if join.isouter:
+            if flags.get('full'):
+                join_type = 'FULL OUTER'
+            elif join.isouter:
                 join_type = 'LEFT OUTER'
             else:
                 join_type = 'INNER'
-        elif join_type is not None:
+        else:
             join_type = join_type.upper()
             if join.isouter and 'INNER' in join_type:
                 raise exc.CompileError(
@@ -165,8 +169,6 @@ class ClickHouseSQLCompiler(compiler.SQLCompiler):
             #         "can't compile join with specified "
             #         "OUTER type and isouter=False"
             #     )
-        if flags.get('full') and 'FULL' not in join_type:
-            join_type = 'FULL ' + join_type
 
         strictness = flags.get('strictness')
         if strictness:
@@ -284,13 +286,13 @@ class ClickHouseSQLCompiler(compiler.SQLCompiler):
         else:
             text += self.default_from()
 
-        if getattr(select, '_array_join', None) is not None:
-            text += select._array_join._compiler_dispatch(self, **kwargs)
-
         sample_clause = getattr(select, '_sample_clause', None)
 
         if sample_clause is not None:
             text += self.sample_clause(select, **kwargs)
+
+        if getattr(select, '_array_join', None) is not None:
+            text += select._array_join._compiler_dispatch(self, **kwargs)
 
         final_clause = getattr(select, '_final_clause', None)
 
@@ -347,6 +349,12 @@ class ClickHouseSQLCompiler(compiler.SQLCompiler):
 
         if group_by:
             text = " GROUP BY " + group_by
+
+            if getattr(select, '_with_cube', False):
+                text += " WITH CUBE"
+
+            if getattr(select, '_with_rollup', False):
+                text += " WITH ROLLUP"
 
             if getattr(select, '_with_totals', False):
                 text += " WITH TOTALS"
@@ -444,3 +452,48 @@ class ClickHouseSQLCompiler(compiler.SQLCompiler):
         self.stack.pop(-1)
 
         return text
+
+    def render_literal_value(self, value, type_):
+        if isinstance(value, list):
+            return (
+                '[' +
+                ', '.join(self.render_literal_value(
+                        x, type_api._resolve_value_to_type(x)
+                    ) for x in value) +
+                ']'
+            )
+        else:
+            return super(ClickHouseSQLCompiler, self).render_literal_value(
+                value, type_
+            )
+
+    def _get_regexp_args(self, binary, kw):
+        string = self.process(binary.left, **kw)
+        pattern = self.process(binary.right, **kw)
+        return string, pattern
+
+    def visit_regexp_match_op_binary(self, binary, operator, **kw):
+        string, pattern = self._get_regexp_args(binary, kw)
+        return "MATCH(%s, %s)" % (string, pattern)
+
+    def visit_not_regexp_match_op_binary(self, binary, operator, **kw):
+        return "NOT %s" % self.visit_regexp_match_op_binary(
+            binary,
+            operator,
+            **kw
+        )
+
+    def visit_ilike_case_insensitive_operand(self, element, **kw):
+        return element.element._compiler_dispatch(self, **kw)
+
+    def visit_ilike_op_binary(self, binary, operator, **kw):
+        return "%s ILIKE %s" % (
+            self.process(binary.left, **kw),
+            self.process(binary.right, **kw)
+        )
+
+    def visit_not_ilike_op_binary(self, binary, operator, **kw):
+        return "%s NOT ILIKE %s" % (
+            self.process(binary.left, **kw),
+            self.process(binary.right, **kw)
+        )

@@ -28,11 +28,12 @@ Both declarative and constructor-style tables supported:
 
         class Rate(Base):
             day = Column(types.Date, primary_key=True)
-            value = Column(types.Int32)
+            value = Column(types.Int32, comment='Rate value')
             other_value = Column(types.DateTime)
 
             __table_args__ = (
                 engines.Memory(),
+                {'comment': 'Store rates'}
             )
 
         another_table = Table('another_rate', metadata,
@@ -856,7 +857,7 @@ becomes
 
     .. code-block:: sql
 
-        SELECT ... FROM ... FULL LEFT OUTER JOIN ... ON ...
+        SELECT ... FROM ... FULL OUTER JOIN ... ON ...
 
 ARRAY JOIN
 ++++++++++
@@ -877,23 +878,29 @@ becomes
 
         SELECT ... FROM ... ARRAY JOIN ...
 
-WITH TOTALS
-+++++++++++
+WITH CUBE/ROLLUP/TOTALS
++++++++++++++++++++++++
 
     .. code-block:: python
 
+        session.query(table.c.x).group_by(table.c.x).with_cube()
+        session.query(table.c.x).group_by(table.c.x).with_rollup()
         session.query(table.c.x).group_by(table.c.x).with_totals()
 
 or
 
     .. code-block:: python
 
+        select([table.c.x]).group_by(table.c.x).with_cube()
+        select([table.c.x]).group_by(table.c.x).with_rollup()
         select([table.c.x]).group_by(table.c.x).with_totals()
 
-becomes
+becomes (respectively)
 
     .. code-block:: sql
 
+        SELECT ... FROM ... GROUP BY ... WITH CUBE
+        SELECT ... FROM ... GROUP BY ... WITH ROLLUP
         SELECT ... FROM ... GROUP BY ... WITH TOTALS
 
 FINAL
@@ -976,7 +983,7 @@ To avoid this side effect you should create another session
 Execution options
 +++++++++++++++++
 
-.. attention:: This supported only in native driver.
+.. attention:: This supported only in native and asynch drivers.
 
 You can override default ClickHouse server settings and pass desired settings
 with  ``execution_options``. Set lower priority to query and limit max number

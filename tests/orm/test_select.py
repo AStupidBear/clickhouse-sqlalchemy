@@ -51,15 +51,35 @@ class SelectTestCase(CompilationTestCase):
             'SELECT t1.x AS t1_x FROM t1 GROUP BY t1.x'
         )
 
+        query = self.session.query(table.c.x).group_by(table.c.x).with_cube()
+        self.assertEqual(
+            self.compile(query),
+            'SELECT t1.x AS t1_x FROM t1 GROUP BY t1.x WITH CUBE'
+        )
+        with self.assertRaises(exc.InvalidRequestError) as ex:
+            self.session.query(table.c.x).with_cube()
+        with self.assertRaises(exc.InvalidRequestError) as ex:
+            self.session.query(table.c.x).with_cube().with_rollup()
+        self.assertIn('with_cube', str(ex.exception))
+
+        query = self.session.query(table.c.x).group_by(table.c.x).with_rollup()
+        self.assertEqual(
+            self.compile(query),
+            'SELECT t1.x AS t1_x FROM t1 GROUP BY t1.x WITH ROLLUP'
+        )
+        with self.assertRaises(exc.InvalidRequestError) as ex:
+            self.session.query(table.c.x).with_rollup()
+        with self.assertRaises(exc.InvalidRequestError) as ex:
+            self.session.query(table.c.x).with_rollup().with_cube()
+        self.assertIn('with_rollup', str(ex.exception))
+
         query = self.session.query(table.c.x).group_by(table.c.x).with_totals()
         self.assertEqual(
             self.compile(query),
             'SELECT t1.x AS t1_x FROM t1 GROUP BY t1.x WITH TOTALS'
         )
-
         with self.assertRaises(exc.InvalidRequestError) as ex:
             self.session.query(table.c.x).with_totals()
-
         self.assertIn('with_totals', str(ex.exception))
 
     def test_array_join(self):
@@ -133,6 +153,57 @@ class SelectTestCase(CompilationTestCase):
         self.assertEqual(
             self.compile(query, literal_binds=True),
             'SELECT t1.x AS t1_x FROM t1 SAMPLE 0.1 GROUP BY t1.x'
+        )
+
+    def test_array_join_with_sample(self):
+        table = self._make_table(
+            Column('nested.array_column', types.Array(types.Int8)),
+            Column('nested.another_array_column', types.Array(types.Int8)),
+            engines.MergeTree(
+                order_by="x",
+                sample_by="x",
+            )
+        )
+        first_label = table.c['nested.array_column'].label('from_array')
+        second_not_label = table.c['nested.another_array_column']
+        query = self.session.query(first_label, second_not_label).sample(0.1)\
+            .array_join(first_label, second_not_label)
+
+        self.assertEqual(
+            self.compile(query),
+            'SELECT '
+            't1."nested.array_column" AS from_array, '
+            't1."nested.another_array_column" '
+            'AS "t1_nested.another_array_column" '
+            'FROM t1 '
+            'SAMPLE %(param_1)s '
+            'ARRAY JOIN t1."nested.array_column" AS from_array, '
+            't1."nested.another_array_column"'
+        )
+
+    def test_array_join_left_with_sample(self):
+        table = self._make_table(
+            Column('nested.array_column', types.Array(types.Int8)),
+            Column('nested.another_array_column', types.Array(types.Int8)),
+            engines.MergeTree(
+                order_by="x",
+                sample_by="x",
+            )
+        )
+        first_label = table.c['nested.array_column'].label('from_array')
+        second_not_label = table.c['nested.another_array_column']
+        query = self.session.query(first_label, second_not_label).sample(0.3)\
+            .array_join(first_label, second_not_label, left=True)
+        self.assertEqual(
+            self.compile(query),
+            'SELECT '
+            't1."nested.array_column" AS from_array, '
+            't1."nested.another_array_column" '
+            'AS "t1_nested.another_array_column" '
+            'FROM t1 '
+            'SAMPLE %(param_1)s '
+            'LEFT ARRAY JOIN t1."nested.array_column" AS from_array, '
+            't1."nested.another_array_column"'
         )
 
     def test_final(self):
@@ -290,6 +361,36 @@ class JoinTestCase(CompilationTestCase):
             self.compile(query),
             "SELECT t1.x AS t1_x, t2.x AS t2_x FROM t1 "
             "ALL FULL OUTER JOIN t2 USING (x, y)"
+        )
+
+    def test_multiple_joins(self):
+        t1, t2, t3 = [Table(
+            't{}'.format(i), self.metadata(),
+            Column('x', types.Int32, primary_key=True),
+            Column('y', types.Int32, primary_key=True),
+            engines.Memory()
+        ) for i in range(1, 4)]
+
+        query = self.session.query(t1.c.x, t2.c.x) \
+            .join(t2, t1.c.x == t2.c.y, strictness='any') \
+            .join(t3, t1.c.x == t3.c.y, strictness='any')
+
+        self.assertEqual(
+            self.compile(query),
+            "SELECT t1.x AS t1_x, t2.x AS t2_x FROM t1 "
+            "ANY INNER JOIN t2 ON t1.x = t2.y "
+            "ANY INNER JOIN t3 ON t1.x = t3.y"
+        )
+
+        query = self.session.query(t1.c.x, t2.c.x) \
+            .join(t2, t1.c.x == t2.c.y, strictness='any') \
+            .outerjoin(t3, t1.c.x == t3.c.y, strictness='any')
+
+        self.assertEqual(
+            self.compile(query),
+            "SELECT t1.x AS t1_x, t2.x AS t2_x FROM t1 "
+            "ANY INNER JOIN t2 ON t1.x = t2.y "
+            "ANY LEFT OUTER JOIN t3 ON t1.x = t3.y"
         )
 
 

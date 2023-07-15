@@ -44,6 +44,12 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
                 opts['alias'], 'clickhouse_alias'
             )
 
+        if column.comment is not None:
+            literal = self.sql_compiler.render_literal_value(
+                column.comment, sqltypes.String()
+            )
+            colspec += " COMMENT " + literal
+
         codec = opts['codec']
         if codec is not None:
             if isinstance(codec, (list, tuple)):
@@ -73,7 +79,11 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
 
     def visit_primary_key_constraint(self, constraint, **kw):
         # Do not render PKs.
-        return ''
+        return None
+
+    def visit_foreign_key_constraint(self, constraint, **kw):
+        # Do not render FKs.
+        return None
 
     def _compile_param(self, expr, opt_list=False):
         compiler = self.sql_compiler
@@ -187,7 +197,14 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         if not engine:
             raise exc.CompileError("No engine for table '%s'" % table.name)
 
-        return ' ENGINE = ' + self.process(engine)
+        text = ' ENGINE = ' + self.process(engine)
+
+        if table.comment is not None:
+            literal = self.sql_compiler.render_literal_value(
+                table.comment, sqltypes.String()
+            )
+            text += ' COMMENT ' + literal
+        return text
 
     def visit_create_materialized_view(self, create):
         mv = create.element
@@ -262,3 +279,16 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
             )
 
         return rv
+
+    def visit_set_table_comment(self, create, **kw):
+        return "ALTER TABLE %s MODIFY COMMENT %s" % (
+            self.preparer.format_table(create.element),
+            self.sql_compiler.render_literal_value(
+                create.element.comment, sqltypes.String()
+            )
+        )
+
+    def visit_drop_table_comment(self, create, **kw):
+        return "ALTER TABLE %s MODIFY COMMENT ''" % (
+            self.preparer.format_table(create.element)
+        )

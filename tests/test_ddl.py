@@ -1,4 +1,4 @@
-from sqlalchemy import Column, func, text, select, inspect
+from sqlalchemy import Column, event, func, text, select, inspect, ForeignKey
 from sqlalchemy.sql.ddl import CreateTable, CreateColumn
 
 from clickhouse_sqlalchemy import (
@@ -357,6 +357,29 @@ class DDLTestCase(BaseTestCase):
             table.drop(if_exists=True)
             self.assertEqual(engine.history, ['DROP TABLE IF EXISTS t1'])
 
+    def test_drop_table_event(self):
+        events_triggered = []
+
+        @event.listens_for(Table, "before_drop")
+        def record_before_event(target, conn, **kwargs):
+            events_triggered.append(("before_drop", target.name))
+
+        @event.listens_for(Table, "after_drop")
+        def record_after_event(target, conn, **kwargs):
+            events_triggered.append(("after_drop", target.name))
+
+        with mocked_engine() as engine:
+            table = Table(
+                't1', self.metadata(session=engine.session),
+                Column('x', types.Int32, primary_key=True)
+            )
+            table.drop(if_exists=True)
+
+        assert events_triggered == [
+            ("before_drop", "t1"),
+            ("after_drop", "t1"),
+        ]
+
     def test_table_drop_on_cluster(self):
         drop_sql = 'DROP TABLE IF EXISTS t1 ON CLUSTER test_cluster'
 
@@ -433,3 +456,40 @@ class DDLTestCase(BaseTestCase):
         self.assertTrue(inspector.has_table(MatView.name))
         MatView.drop()
         self.assertFalse(inspector.has_table(MatView.name))
+
+    def test_create_table_with_comment(self):
+        table = Table(
+            't1', self.metadata(session=self.session),
+            Column('x', types.Int32, primary_key=True),
+            engines.Memory(),
+            comment='table_comment'
+        )
+
+        self.assertEqual(
+            self.compile(CreateTable(table)),
+            "CREATE TABLE t1 (x Int32) ENGINE = Memory COMMENT 'table_comment'"
+        )
+
+    def test_create_table_with_column_comment(self):
+        table = Table(
+            't1', self.metadata(session=self.session),
+            Column('x', types.Int32, primary_key=True, comment='col_comment'),
+            engines.Memory()
+        )
+
+        self.assertEqual(
+            self.compile(CreateTable(table)),
+            "CREATE TABLE t1 (x Int32 COMMENT 'col_comment') ENGINE = Memory"
+        )
+
+    def test_do_not_render_fk(self):
+        table = Table(
+            't1', self.metadata(session=self.session),
+            Column('x', types.Int32, ForeignKey('t2.x'), primary_key=True),
+            engines.Memory()
+        )
+
+        self.assertEqual(
+            self.compile(CreateTable(table)),
+            "CREATE TABLE t1 (x Int32) ENGINE = Memory"
+        )

@@ -1,7 +1,10 @@
-from sqlalchemy import func, Column
+from sqlalchemy import func, Column, types as sqltypes
 
 try:
     from alembic.ddl import impl
+    from alembic.ddl.base import (
+        compiles, ColumnComment, format_table_name, format_column_name
+    )
 except ImportError:
     raise RuntimeError('alembic must be installed')
 
@@ -22,7 +25,15 @@ class ClickHouseDialectImpl(impl.DefaultImpl):
     transactional_ddl = False
 
     def drop_table(self, table):
+        table.dispatch.before_drop(
+            table, self.connection, checkfirst=False, _ddl_runner=self
+        )
+
         self._exec(DropTable(table))
+
+        table.dispatch.after_drop(
+            table, self.connection, checkfirst=False, _ddl_runner=self
+        )
 
 
 def patch_alembic_version(context, **kwargs):
@@ -53,6 +64,24 @@ def include_object(object, name, type_, reflected, compare_to):
         return False
 
     return True
+
+
+@compiles(ColumnComment, 'clickhouse')
+def visit_column_comment(element, compiler, **kw):
+    ddl = "ALTER TABLE {table_name} COMMENT COLUMN {column_name} {comment}"
+    comment = (
+        compiler.sql_compiler.render_literal_value(
+            element.comment or '', sqltypes.String()
+        )
+    )
+
+    return ddl.format(
+        table_name=format_table_name(
+            compiler, element.table_name, element.schema
+        ),
+        column_name=format_column_name(compiler, element.column_name),
+        comment=comment,
+    )
 
 
 __all__ = (

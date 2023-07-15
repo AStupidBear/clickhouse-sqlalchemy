@@ -1,18 +1,16 @@
-from urllib.parse import quote
+from sqlalchemy.engine.url import URL
 
-from sqlalchemy.engine.url import URL, make_url
-
-from clickhouse_sqlalchemy.drivers.native.base import ClickHouseDialect_native
+from clickhouse_sqlalchemy.drivers.asynch.base import ClickHouseDialect_asynch
 from tests.testcase import BaseTestCase
 
 
 class TestConnectArgs(BaseTestCase):
     def setUp(self):
-        self.dialect = ClickHouseDialect_native()
+        self.dialect = ClickHouseDialect_asynch()
 
     def test_simple_url(self):
         url = URL.create(
-            drivername='clickhouse+native',
+            drivername='clickhouse+asynch',
             host='localhost',
             database='default',
         )
@@ -23,7 +21,7 @@ class TestConnectArgs(BaseTestCase):
 
     def test_secure_false(self):
         url = URL.create(
-            drivername='clickhouse+native',
+            drivername='clickhouse+asynch',
             username='default',
             password='default',
             host='localhost',
@@ -39,7 +37,7 @@ class TestConnectArgs(BaseTestCase):
 
     def test_no_auth(self):
         url = URL.create(
-            drivername='clickhouse+native',
+            drivername='clickhouse+asynch',
             host='localhost',
             port=9001,
             database='default',
@@ -47,14 +45,4 @@ class TestConnectArgs(BaseTestCase):
         connect_args = self.dialect.create_connect_args(url)
         self.assertEqual(
             str(connect_args[0][0]), 'clickhouse://localhost:9001/default'
-        )
-
-    def test_quoting(self):
-        user = quote('us#er')
-        password = quote(' pass#word')
-        part = '{}:{}@host/database'.format(user, password)
-        url = make_url('clickhouse+native://' + part)
-        connect_args = self.dialect.create_connect_args(url)
-        self.assertEqual(
-            str(connect_args[0][0]), 'clickhouse://' + part
         )

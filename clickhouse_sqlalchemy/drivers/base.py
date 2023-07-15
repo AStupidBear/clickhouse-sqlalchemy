@@ -5,7 +5,6 @@ from sqlalchemy.engine import default, reflection
 from sqlalchemy.sql import (
     compiler, elements
 )
-from sqlalchemy.types import DATE, DATETIME, FLOAT
 from sqlalchemy.util import (
     warn,
 )
@@ -22,21 +21,27 @@ colspecs = {}
 
 # Type converters
 ischema_names = {
+    'Int256': types.Int256,
+    'Int128': types.Int128,
     'Int64': types.Int64,
     'Int32': types.Int32,
     'Int16': types.Int16,
     'Int8': types.Int8,
+    'UInt256': types.UInt256,
+    'UInt128': types.UInt128,
     'UInt64': types.UInt64,
     'UInt32': types.UInt32,
     'UInt16': types.UInt16,
     'UInt8': types.UInt8,
-    'Date': DATE,
-    'DateTime': DATETIME,
-    'DateTime64': DATETIME,
-    'Float64': FLOAT,
-    'Float32': FLOAT,
+    'Date': types.Date,
+    'DateTime': types.DateTime,
+    'DateTime64': types.DateTime64,
+    'Float64': types.Float64,
+    'Float32': types.Float32,
     'Decimal': types.Decimal,
     'String': types.String,
+    'Bool': types.Boolean,
+    'Boolean': types.Boolean,
     'UUID': types.UUID,
     'IPv4': types.IPv4,
     'IPv6': types.IPv6,
@@ -77,7 +82,7 @@ class ClickHouseDialect(default.DefaultDialect):
     supports_sane_rowcount = False
     supports_sane_multi_rowcount = False
     supports_native_decimal = True
-    supports_native_boolean = False
+    supports_native_boolean = True
     non_native_boolean_check_constraint = False
     supports_alter = True
     supports_sequences = False
@@ -85,10 +90,14 @@ class ClickHouseDialect(default.DefaultDialect):
     supports_multivalues_insert = True
     supports_statement_cache = True
 
+    supports_comments = True
+    inline_comments = True
+
     # Dialect related-features
     supports_delete = True
     supports_update = True
     supports_engine_reflection = True
+    supports_table_comment_reflection = True
 
     engine_reflection = True  # Disables engine reflection from URL.
 
@@ -129,7 +138,8 @@ class ClickHouseDialect(default.DefaultDialect):
 
         self.supports_delete = version >= (1, 1, 54388)
         self.supports_update = version >= (18, 12, 14)
-        self.supports_engine_reflection = version >= (18, 16, 0)
+        self.supports_engine_reflection = version >= (18, 16)
+        self.supports_table_comment_reflection = version >= (21, 6)
 
     def _execute(self, connection, sql, scalar=False, **kwargs):
         raise NotImplementedError
@@ -175,12 +185,13 @@ class ClickHouseDialect(default.DefaultDialect):
 
         return [
             self._get_column_info(
-                r.name, r.type, r.default_type, r.default_expression
+                r.name, r.type, r.default_type, r.default_expression,
+                getattr(r, 'comment', None)
             ) for r in rows
         ]
 
     def _get_column_info(self, name, format_type, default_type,
-                         default_expression):
+                         default_expression, comment):
         col_type = self._get_column_type(name, format_type)
         col_default = self._get_column_default(default_type,
                                                default_expression)
@@ -189,6 +200,7 @@ class ClickHouseDialect(default.DefaultDialect):
             'type': col_type,
             'nullable': format_type.startswith('Nullable('),
             'default': col_default,
+            'comment': comment or None
         }
         return result
 
@@ -357,10 +369,7 @@ class ClickHouseDialect(default.DefaultDialect):
             'primary_key', 'sampling_key'
         ]
 
-        if schema:
-            database = schema
-        else:
-            database = connection.engine.url.database
+        database = schema if schema else connection.engine.url.database
 
         query = text(
             'SELECT {} FROM system.tables '
@@ -376,6 +385,22 @@ class ClickHouseDialect(default.DefaultDialect):
 
         if row:
             return {x: getattr(row, x, None) for x in columns}
+
+    @reflection.cache
+    def get_table_comment(self, connection, table_name, schema=None, **kw):
+        if not self.supports_table_comment_reflection:
+            raise NotImplementedError()
+
+        database = schema if schema else connection.engine.url.database
+
+        query = text(
+            'SELECT comment FROM system.tables '
+            'WHERE database = :database AND name = :name'
+        )
+        comment = self._execute(
+            connection, query, database=database, name=table_name, scalar=True
+        )
+        return {'text': comment or None}
 
     def do_rollback(self, dbapi_connection):
         # No support for transactions.

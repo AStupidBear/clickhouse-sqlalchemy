@@ -2,6 +2,7 @@ __all__ = [
     'String',
     'Int',
     'Float',
+    'Boolean',
     'Array',
     'Nullable',
     'UUID',
@@ -14,6 +15,10 @@ __all__ = [
     'UInt32',
     'Int64',
     'UInt64',
+    'Int128',
+    'UInt128',
+    'Int256',
+    'UInt256',
     'Float32',
     'Float64',
     'Date',
@@ -33,6 +38,7 @@ __all__ = [
 from .common import String
 from .common import Int
 from .common import Float
+from .common import Boolean
 from .common import Array
 from .common import Nullable
 from .common import UUID
@@ -45,6 +51,10 @@ from .common import Int32
 from .common import UInt32
 from .common import Int64
 from .common import UInt64
+from .common import Int128
+from .common import UInt128
+from .common import Int256
+from .common import UInt256
 from .common import Float32
 from .common import Float64
 from .common import Date
