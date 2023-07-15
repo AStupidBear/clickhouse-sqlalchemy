@@ -192,12 +192,13 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         return ''
 
     def post_create_table(self, table):
-        engine = getattr(table, 'engine', None)
+        from clickhouse_sqlalchemy import engines
+        engine = getattr(table, 'engine', engines.ReplacingMergeTree(primary_key=table.primary_key))
 
         if not engine:
             raise exc.CompileError("No engine for table '%s'" % table.name)
 
-        text = ' ENGINE = ' + self.process(engine)
+        text = ' ENGINE = ' + self.visit_merge_tree(engine)
 
         if table.comment is not None:
             literal = self.sql_compiler.render_literal_value(
