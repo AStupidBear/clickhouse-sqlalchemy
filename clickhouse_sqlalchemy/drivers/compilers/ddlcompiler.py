@@ -198,7 +198,7 @@ class ClickHouseDDLCompiler(compiler.DDLCompiler):
         if not engine:
             raise exc.CompileError("No engine for table '%s'" % table.name)
 
-        text = ' ENGINE = ' + self.visit_merge_tree(engine)
+        text = ' ENGINE = ' + self.process(engine)
 
         if table.comment is not None:
             literal = self.sql_compiler.render_literal_value(
